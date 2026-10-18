@@ -1,0 +1,528 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Rail Live</title>
+<meta name="theme-color" content="#80276C">
+<meta name="description" content="Live MBTA Commuter Rail tracker: trip planner, live train position, delays and track numbers.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: one-column phone app, three views (plan, live train, settings) switched by hash */
+:root{
+  --bg:#F5F1F5; --surface:#FFFFFF; --ink:#1F1520; --muted:#6C5E6A; --line:#E4DAE3;
+  --rail:#80276C; --rail-ink:#FFFFFF; --rail-soft:#F3E6F0;
+  --ok:#1E7A4C; --warn:#B25B00; --bad:#B42318;
+  --display:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#151016; --surface:#211922; --ink:#F3ECF2; --muted:#AE9EAB; --line:#382D37;
+  --rail:#C46DB2; --rail-ink:#1A0F18; --rail-soft:#2E1F2C;
+  --ok:#5CC892; --warn:#F0A04B; --bad:#FF7A6E; color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{background:var(--bg);margin:0}
+body{color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-tap-highlight-color:transparent;
+  padding:max(10px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(28px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.app{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible,a:focus-visible{outline:2px solid var(--rail);outline-offset:2px}
+a{color:var(--rail)}
+.tn{font-variant-numeric:tabular-nums}
+
+header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0}
+.badge{width:34px;height:34px;border-radius:8px;background:var(--rail);color:var(--rail-ink);display:grid;place-items:center;font-family:var(--display);font-weight:700;font-size:15px;flex:none}
+.brand h1{font-family:var(--display);font-weight:700;font-size:23px;margin:0;line-height:1}
+.brand p{margin:0;font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase}
+.icon-btn{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--surface);display:grid;place-items:center;flex:none}
+.back{border:0;background:none;padding:6px 0;color:var(--rail);font-weight:700;display:flex;align-items:center;gap:4px}
+
+/* route picker */
+.route{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px 12px 8px 14px;display:grid;grid-template-columns:16px 1fr 44px;column-gap:12px;align-items:center}
+.rline{grid-row:1/3;align-self:stretch;display:flex;flex-direction:column;align-items:center;padding-block:16px}
+.dot{width:12px;height:12px;border-radius:50%;border:3px solid var(--rail);background:var(--surface);flex:none}
+.dot.end{background:var(--rail)}
+.rbar{flex:1;width:3px;background:var(--rail);margin-block:2px}
+.stopbtn{border:0;background:none;text-align:left;padding:8px 0;min-width:0;width:100%}
+.stopbtn small{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.stopbtn strong{font-size:18px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stopbtn + .stopbtn{border-top:1px solid var(--line)}
+#swap{grid-column:3;grid-row:1/3;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--rail-soft);color:var(--rail);display:grid;place-items:center;transition:transform .35s}
+#swap.spin{transform:rotate(180deg)}
+
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 14px;font-size:14px}
+.chip[aria-pressed="true"]{background:var(--rail);border-color:var(--rail);color:var(--rail-ink);font-weight:700}
+.chip.star[aria-pressed="true"]{background:var(--rail-soft);color:var(--rail);border-color:var(--rail)}
+.favs{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.favs .chip{white-space:nowrap;font-size:13px}
+
+.listhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding-inline:2px}
+.listhead h2{font-family:var(--display);font-size:21px;margin:0}
+.listhead span{font-size:12px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.trip{display:grid;grid-template-columns:1fr auto;gap:2px 12px;padding:12px 14px;border-top:1px solid var(--line);width:100%;text-align:left;background:none;border-left:0;border-right:0;border-bottom:0}
+.trip:first-child{border-top:0}
+.trip.past{opacity:.45}
+.trip.next{background:var(--rail-soft)}
+.times{font-family:var(--display);font-weight:600;font-size:25px;line-height:1.05}
+.times s{color:var(--muted);font-size:18px;margin-right:4px}
+.times .late{color:var(--bad)}
+.times .arr{color:var(--muted);font-size:20px}
+.sub{font-size:13px;color:var(--muted);grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center}
+.side{text-align:right;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.track{font-family:var(--display);font-weight:700;font-size:15px;border:2px solid var(--ink);border-radius:6px;padding:0 6px;line-height:1.35;white-space:nowrap}
+.track.tba{border-style:dashed;border-color:var(--muted);color:var(--muted);font-weight:500}
+.pill{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.pill.ok{background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
+.pill.warn{background:color-mix(in srgb,var(--warn) 18%,transparent);color:var(--warn)}
+.pill.bad{background:color-mix(in srgb,var(--bad) 16%,transparent);color:var(--bad)}
+.pill.sch{background:var(--rail-soft);color:var(--muted)}
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--ok);margin-right:5px;animation:pulse 1.6s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--ok) 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.more{border:0;background:none;color:var(--rail);font-weight:700;padding:12px 14px;width:100%;text-align:center;border-top:1px solid var(--line)}
+.empty,.err{padding:18px 14px;color:var(--muted);font-size:14px}
+.err{color:var(--bad)}
+.skeleton{height:64px;border-top:1px solid var(--line);background:linear-gradient(90deg,transparent,var(--rail-soft),transparent);background-size:200% 100%;animation:sk 1.2s infinite}
+.skeleton:first-child{border-top:0}
+@keyframes sk{to{background-position:-200% 0}}
+
+/* live train */
+.hero{background:var(--rail);color:var(--rail-ink);border-radius:16px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.hero .eyebrow{font-size:12px;letter-spacing:.1em;text-transform:uppercase;opacity:.85;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.hero h2{font-family:var(--display);font-size:34px;line-height:1;margin:0}
+.hero .status{font-size:17px;font-weight:700}
+.hero .meta{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;opacity:.9}
+.hero a{color:inherit}
+.alerts{display:flex;flex-direction:column;gap:8px}
+.alert{background:color-mix(in srgb,var(--warn) 12%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:12px;padding:10px 12px;font-size:13px}
+.alert b{color:var(--warn)}
+.tl{list-style:none;margin:0;padding:6px 0}
+.st{display:grid;grid-template-columns:76px 28px 1fr;min-height:62px}
+.st .tcol{text-align:right;padding-top:9px;font-variant-numeric:tabular-nums}
+.st .tcol .s{font-family:var(--display);font-size:19px;font-weight:600;line-height:1}
+.st .tcol .p{font-size:12px;font-weight:700}
+.st .rail{position:relative}
+.st .rail::before{content:"";position:absolute;left:12px;top:0;bottom:0;width:4px;background:var(--line)}
+.st:first-child .rail::before{top:16px}
+.st:last-child .rail::before{bottom:calc(100% - 16px)}
+.st.done .rail::before{background:var(--rail)}
+.st.done.cur .rail::before{background:linear-gradient(var(--rail) 0 calc(16px + var(--f,0) * (100% - 16px)),var(--line) 0)}
+.st .rail .sd{position:absolute;left:6px;top:9px;width:16px;height:16px;border-radius:50%;background:var(--surface);border:3px solid var(--line)}
+.st.done .rail .sd{border-color:var(--rail);background:var(--rail)}
+.st.mine .rail .sd{border-color:var(--rail);box-shadow:0 0 0 3px var(--rail-soft)}
+.st.skip .name{text-decoration:line-through;color:var(--muted)}
+.st .name{padding:6px 0 10px 8px;min-width:0}
+.st .name strong{font-size:16px}
+.st .name .info{font-size:12px;color:var(--muted);display:flex;gap:4px 10px;flex-wrap:wrap;margin-top:2px;align-items:center}
+.st.mine .name strong{color:var(--rail)}
+.train{position:absolute;left:-2px;width:32px;height:32px;border-radius:50%;background:var(--rail);color:var(--rail-ink);display:grid;place-items:center;z-index:2;
+  top:calc(16px + var(--f,0) * (100% - 16px));transform:translateY(-50%);box-shadow:0 0 0 4px color-mix(in srgb,var(--rail) 30%,transparent);transition:top 1s ease}
+.train svg{width:18px;height:18px}
+
+/* sheet */
+.sheet{position:fixed;inset:0;background:color-mix(in srgb,#000 45%,transparent);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet .panel{background:var(--bg);width:100%;max-width:560px;height:86%;border-radius:18px 18px 0 0;display:flex;flex-direction:column;
+  padding:14px max(16px,env(safe-area-inset-right)) max(14px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}
+.sheet .top{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.sheet input{flex:1;min-width:0;font:inherit;font-size:17px;padding:10px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.sheet .list{overflow-y:auto;flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.sheet .opt{display:flex;justify-content:space-between;gap:10px;width:100%;text-align:left;padding:11px 14px;border:0;border-top:1px solid var(--line);background:none}
+.sheet .opt:first-child{border-top:0}
+.sheet .opt small{color:var(--muted);font-size:12px;display:block}
+.sheet .opt .z{font-size:12px;color:var(--muted);white-space:nowrap}
+.sheet .grp{padding:8px 14px 4px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--rail-soft)}
+
+.field{display:flex;flex-direction:column;gap:6px}
+.field input{font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+.primary{background:var(--rail);color:var(--rail-ink);border:0;border-radius:10px;padding:10px 16px;font-weight:700}
+.note{font-size:13px;color:var(--muted);line-height:1.5}
+.foot{font-size:12px;color:var(--muted);text-align:center}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app" id="app"></div>
+<div class="sheet" id="sheet" hidden></div>
+
+<script>
+"use strict";
+const TZ = "America/New_York";
+const API = "https://api-v3.mbta.com";
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const store = {
+  get(k, d){ try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch(e){ return d; } },
+  set(k, v){ try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} }
+};
+const D = s => s ? new Date(s) : null;
+const fmt = d => d ? d.toLocaleTimeString("en-US", {hour:"numeric", minute:"2-digit", timeZone:TZ}).replace(" ", " ").toLowerCase() : "";
+const ymd = d => new Intl.DateTimeFormat("en-CA", {timeZone:TZ, year:"numeric", month:"2-digit", day:"2-digit"}).format(d);
+const rel = (o, k) => o && o.relationships && o.relationships[k] && o.relationships[k].data ? o.relationships[k].data.id : null;
+const mins = ms => Math.round(ms / 60000);
+const TRAIN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="14" rx="3"/><path d="M5 11h14M9 21l-2-4M15 21l2-4M9 14h.01M15 14h.01"/></svg>';
+
+const state = {
+  from: store.get("from", {id:"place-NEC-1851", name:"Providence"}),
+  to: store.get("to", {id:"place-NEC-2203", name:"Hyde Park"}),
+  day: 0, showPast: false
+};
+let timer = null, tick = null;
+
+/* ---------- API ---------- */
+async function api(path, params = {}){
+  const u = new URL(API + path);
+  for (const [k, v] of Object.entries(params)) if (v != null && v !== "") u.searchParams.set(k, v);
+  const key = store.get("apikey", "");
+  if (key) u.searchParams.set("api_key", key);
+  let r;
+  try { r = await fetch(u); } catch(e){ throw new Error("Can't reach MBTA. Check your internet connection."); }
+  if (r.status === 429) throw new Error("Too many refreshes. Wait a minute, or add a free API key in Settings.");
+  if (r.status === 401 || r.status === 403) throw new Error("MBTA rejected the API key. Check it in Settings.");
+  if (!r.ok) throw new Error("MBTA returned an error (" + r.status + "). Try again shortly.");
+  const j = await r.json();
+  const inc = {};
+  (j.included || []).forEach(x => inc[x.type + ":" + x.id] = x);
+  return { data: j.data || [], get: (t, id) => inc[t + ":" + id] };
+}
+
+/* ---------- stations (all Commuter Rail) ---------- */
+async function loadStations(){
+  const c = store.get("stations_v2", null);
+  if (c && Date.now() - c.t < 7 * 864e5) return c;
+  const routes = (await api("/routes", {"filter[type]": 2})).data
+    .map(r => ({id:r.id, name:r.attributes.long_name, color:"#" + r.attributes.color}));
+  const byId = {};
+  for (const rt of routes){
+    const s = await api("/stops", {"filter[route]": rt.id});
+    s.data.forEach(st => {
+      const id = st.id;
+      if (!byId[id]) byId[id] = {id, name:st.attributes.name, town:st.attributes.municipality,
+        lat:st.attributes.latitude, lon:st.attributes.longitude, zone:(rel(st, "zone") || "").replace("CR-zone-", ""), lines:[]};
+      byId[id].lines.push(rt.name.replace(/ Line$/, ""));
+    });
+  }
+  const out = {t:Date.now(), routes, list:Object.values(byId).sort((a, b) => a.name.localeCompare(b.name))};
+  store.set("stations_v2", out);
+  return out;
+}
+
+/* ---------- views ---------- */
+function stop(){ clearInterval(timer); clearInterval(tick); timer = tick = null; }
+function route(){
+  stop();
+  const h = location.hash.slice(1);
+  if (h.startsWith("trip/")) return viewTrip(decodeURIComponent(h.slice(5)));
+  if (h === "settings") return viewSettings();
+  return viewPlan();
+}
+window.addEventListener("hashchange", route);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) route(); else stop(); });
+
+function header(back){
+  return back
+    ? '<header><button class="back" onclick="history.length>1?history.back():location.hash=\'\'">‹ Back</button><button class="icon-btn" aria-label="Settings" onclick="location.hash=\'settings\'">' + gear() + '</button></header>'
+    : '<header><div class="brand"><div class="badge" aria-hidden="true">CR</div><div><h1>Rail Live</h1><p>MBTA Commuter Rail</p></div></div><button class="icon-btn" aria-label="Settings" onclick="location.hash=\'settings\'">' + gear() + '</button></header>';
+}
+function gear(){ return '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>'; }
+
+/* ---------- plan view ---------- */
+function favKey(){ return state.from.id + ">" + state.to.id; }
+function viewPlan(){
+  const favs = store.get("favs", []);
+  const isFav = favs.some(f => f.k === favKey());
+  const dayLabel = ["Today", "Tomorrow"];
+  $("#app").innerHTML = header(false) + `
+    <section class="route" aria-label="Route">
+      <div class="rline" aria-hidden="true"><div class="dot"></div><div class="rbar"></div><div class="dot end"></div></div>
+      <button class="stopbtn" id="pickFrom"><small>From</small><strong>${esc(state.from.name)}</strong></button>
+      <button id="swap" aria-label="Swap stations"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M7 20l-4-4M7 20l4-4M17 20V4M17 4l-4 4M17 4l4 4"/></svg></button>
+      <button class="stopbtn" id="pickTo"><small>To</small><strong>${esc(state.to.name)}</strong></button>
+    </section>
+    <div class="row">
+      ${dayLabel.map((l, i) => `<button class="chip" data-day="${i}" aria-pressed="${state.day === i}">${l}</button>`).join("")}
+      <button class="chip star" id="fav" aria-pressed="${isFav}">${isFav ? "★ Saved" : "☆ Save route"}</button>
+    </div>
+    ${favs.length ? `<div class="favs">${favs.map(f => `<button class="chip" data-fav="${esc(f.k)}">${esc(f.a.name)} → ${esc(f.b.name)}</button>`).join("")}</div>` : ""}
+    <div class="listhead"><h2 id="lh">Trains</h2><span id="upd"></span></div>
+    <div class="card" id="trips"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
+    <p class="foot">Live data from the MBTA. Times shown in Boston time.</p>`;
+  $("#pickFrom").onclick = () => openPicker("from");
+  $("#pickTo").onclick = () => openPicker("to");
+  $("#swap").onclick = () => { [state.from, state.to] = [state.to, state.from]; save(); viewPlan(); };
+  document.querySelectorAll("[data-day]").forEach(b => b.onclick = () => { state.day = +b.dataset.day; viewPlan(); });
+  document.querySelectorAll("[data-fav]").forEach(b => b.onclick = () => {
+    const f = favs.find(x => x.k === b.dataset.fav); state.from = f.a; state.to = f.b; save(); viewPlan(); });
+  $("#fav").onclick = () => {
+    let fs = store.get("favs", []);
+    if (fs.some(f => f.k === favKey())) fs = fs.filter(f => f.k !== favKey());
+    else fs.unshift({k:favKey(), a:state.from, b:state.to});
+    store.set("favs", fs.slice(0, 8)); viewPlan();
+  };
+  loadTrips();
+  if (state.day === 0) timer = setInterval(loadTrips, 30000);
+}
+function save(){ store.set("from", state.from); store.set("to", state.to); }
+
+async function loadTrips(){
+  const box = $("#trips"); if (!box) return;
+  const A = state.from.id, B = state.to.id;
+  if (A === B){ box.innerHTML = '<div class="empty">Pick two different stations.</div>'; return; }
+  const date = ymd(new Date(Date.now() + state.day * 864e5));
+  try {
+    const [sch, pre] = await Promise.all([
+      api("/schedules", {"filter[stop]": A + "," + B, "filter[date]": date, "filter[route_type]": 2, include:"stop,trip,route"}),
+      state.day === 0 ? api("/predictions", {"filter[stop]": A + "," + B, "filter[route_type]": 2, include:"stop,vehicle"}) : Promise.resolve(null)
+    ]);
+    const parentOf = (g, sid) => { const s = g.get("stop", sid); return (s && rel(s, "parent_station")) || sid; };
+    const trips = {};
+    sch.data.forEach(s => {
+      const tid = rel(s, "trip"), p = parentOf(sch, rel(s, "stop"));
+      const t = trips[tid] || (trips[tid] = {id:tid, route:rel(s, "route")});
+      const rec = {seq:s.attributes.stop_sequence, arr:D(s.attributes.arrival_time), dep:D(s.attributes.departure_time),
+        pick:s.attributes.pickup_type, drop:s.attributes.drop_off_type, stopId:rel(s, "stop")};
+      if (p === A) t.a = rec; else if (p === B) t.b = rec;
+    });
+    const preds = {};
+    if (pre) pre.data.forEach(p => {
+      const sid = rel(p, "stop"), par = parentOf(pre, sid), tid = rel(p, "trip");
+      const st = pre.get("stop", sid);
+      (preds[tid] = preds[tid] || {})[par === A ? "a" : "b"] = {
+        arr:D(p.attributes.arrival_time), dep:D(p.attributes.departure_time), status:p.attributes.status,
+        rel:p.attributes.schedule_relationship, track:st && st.attributes.platform_code, vehicle:rel(p, "vehicle")};
+    });
+    let list = Object.values(trips).filter(t => t.a && t.b && t.a.seq < t.b.seq && t.a.pick !== 1 && t.b.drop !== 1);
+    list.forEach(t => {
+      const tr = sch.get("trip", t.id), ro = sch.get("route", t.route);
+      t.num = tr ? tr.attributes.name : ""; t.headsign = tr ? tr.attributes.headsign : "";
+      t.line = ro ? ro.attributes.long_name.replace(/ Line$/, "") : "";
+      t.p = preds[t.id] || {};
+      t.sDep = t.a.dep || t.a.arr; t.sArr = t.b.arr || t.b.dep;
+      t.pDep = t.p.a && (t.p.a.dep || t.p.a.arr); t.pArr = t.p.b && (t.p.b.arr || t.p.b.dep);
+      t.cancel = (t.p.a && ["CANCELLED", "SKIPPED"].includes(t.p.a.rel)) || (t.p.b && ["CANCELLED", "SKIPPED"].includes(t.p.b.rel));
+    });
+    list.sort((x, y) => x.sDep - y.sDep);
+    const now = Date.now();
+    const gone = t => state.day === 0 && ((t.pDep || t.sDep) < now - 60000) && !(t.p.a && t.p.a.status && /board/i.test(t.p.a.status));
+    const nextIdx = list.findIndex(t => !gone(t));
+    const shown = state.showPast ? list : list.filter(t => !gone(t));
+    $("#lh").textContent = state.day === 0 ? "Trains today" : "Trains tomorrow";
+    $("#upd").textContent = list.length ? list.length + " trips · updated " + fmt(new Date()) : "";
+    if (!list.length){ box.innerHTML = '<div class="empty">No direct trains between these stations on this day. They may be on different lines.</div>'; return; }
+    const pastCount = list.length - (nextIdx === -1 ? 0 : list.length - nextIdx);
+    box.innerHTML = (state.day === 0 && pastCount ? `<button class="more" style="border-top:0;border-bottom:1px solid var(--line)" id="past">${state.showPast ? "Hide" : "Show"} ${pastCount} earlier trains</button>` : "") +
+      (shown.length ? shown.map(t => tripRow(t, list.indexOf(t) === nextIdx, gone(t))).join("") : '<div class="empty">No more trains today. Try Tomorrow.</div>');
+    const pb = $("#past"); if (pb) pb.onclick = () => { state.showPast = !state.showPast; loadTrips(); };
+    box.querySelectorAll(".trip").forEach(b => b.onclick = () => {
+      store.set("ctx", {a:state.from.id, b:state.to.id});
+      location.hash = "trip/" + encodeURIComponent(b.dataset.id);
+    });
+  } catch(e){ box.innerHTML = '<div class="err">' + esc(e.message) + '</div>'; }
+}
+function delayInfo(s, p){
+  if (!p) return null;
+  const d = mins(p - s);
+  return d;
+}
+function tripRow(t, isNext, isPast){
+  const dly = delayInfo(t.sDep, t.pDep);
+  let pill;
+  if (t.cancel) pill = '<span class="pill bad">Cancelled</span>';
+  else if (t.p.a && t.p.a.status && !/^on time$/i.test(t.p.a.status)) pill = `<span class="pill ${/delay|late/i.test(t.p.a.status) ? "warn" : "ok"}">${esc(t.p.a.status)}</span>`;
+  else if (dly != null && dly >= 3) pill = `<span class="pill warn">${dly} min late</span>`;
+  else if (dly != null) pill = '<span class="pill ok"><span class="live-dot"></span>On time</span>';
+  else pill = '<span class="pill sch">Scheduled</span>';
+  const dep = t.pDep && Math.abs(t.pDep - t.sDep) >= 60000 && !t.cancel
+    ? `<s>${fmt(t.sDep)}</s><span class="late">${fmt(t.pDep)}</span>` : fmt(t.sDep);
+  const arr = fmt(t.pArr || t.sArr);
+  const dur = mins((t.pArr || t.sArr) - (t.pDep || t.sDep));
+  const track = t.p.a && t.p.a.track ? `<span class="track">Track ${esc(t.p.a.track)}</span>` : (state.day === 0 && !isPast ? '<span class="track tba">Track TBA</span>' : "");
+  let left = "";
+  if (state.day === 0 && !isPast && !t.cancel){ const m = mins((t.pDep || t.sDep) - Date.now()); left = m <= 0 ? "Departing now" : m < 90 ? "in " + m + " min" : ""; }
+  return `<button class="trip${isNext ? " next" : ""}${isPast ? " past" : ""}" data-id="${esc(t.id)}">
+    <div class="times tn">${dep} <span class="arr">→ ${arr}</span></div>
+    <div class="side">${track}</div>
+    <div class="sub">${pill}<span>Train ${esc(t.num)}</span><span>${dur} min</span><span>${esc(t.line)}</span>${left ? `<b style="color:var(--ink)">${left}</b>` : ""}</div>
+  </button>`;
+}
+
+/* ---------- station picker ---------- */
+async function openPicker(which){
+  const sh = $("#sheet");
+  sh.hidden = false;
+  sh.innerHTML = `<div class="panel" role="dialog" aria-label="Choose station">
+    <div class="top"><input id="q" placeholder="Search ${which === "from" ? "departure" : "arrival"} station" autocomplete="off"><button class="icon-btn" id="close" aria-label="Close">✕</button></div>
+    <div class="row" style="margin-bottom:10px"><button class="chip" id="near">📍 Nearest stations</button></div>
+    <div class="list" id="opts"><div class="empty">Loading all stations…</div></div></div>`;
+  const close = () => { sh.hidden = true; sh.innerHTML = ""; };
+  $("#close").onclick = close;
+  sh.onclick = e => { if (e.target === sh) close(); };
+  let data;
+  try { data = await loadStations(); } catch(e){ $("#opts").innerHTML = '<div class="err">' + esc(e.message) + '</div>'; return; }
+  let near = null;
+  const draw = () => {
+    const q = $("#q").value.trim().toLowerCase();
+    let L = data.list.filter(s => !q || s.name.toLowerCase().includes(q) || (s.town || "").toLowerCase().includes(q) || s.lines.join(" ").toLowerCase().includes(q));
+    if (near) L = L.map(s => ({...s, km:dist(near, s)})).sort((a, b) => a.km - b.km).slice(0, 15);
+    $("#opts").innerHTML = L.length ? L.map(s => `<button class="opt" data-id="${esc(s.id)}"><span><strong>${esc(s.name)}</strong><small>${esc(s.lines.join(" · "))}${s.town ? " · " + esc(s.town) : ""}</small></span><span class="z">${s.km != null ? (s.km * 0.621).toFixed(1) + " mi" : s.zone ? "Zone " + esc(s.zone) : ""}</span></button>`).join("")
+      : '<div class="empty">No station matches that search.</div>';
+    $("#opts").querySelectorAll(".opt").forEach(b => b.onclick = () => {
+      const s = data.list.find(x => x.id === b.dataset.id);
+      state[which] = {id:s.id, name:s.name}; save(); close(); viewPlan();
+    });
+  };
+  $("#q").oninput = draw; draw();
+  $("#near").onclick = () => {
+    if (!navigator.geolocation){ $("#near").textContent = "Location not available"; return; }
+    $("#near").textContent = "Finding you…";
+    navigator.geolocation.getCurrentPosition(p => { near = {lat:p.coords.latitude, lon:p.coords.longitude}; $("#near").textContent = "📍 Sorted by distance"; draw(); },
+      () => { $("#near").textContent = "Location permission denied"; }, {timeout:10000});
+  };
+}
+function dist(a, b){ const r = x => x * Math.PI / 180, dLa = r(b.lat - a.lat), dLo = r(b.lon - a.lon);
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLo / 2) ** 2; return 12742 * Math.asin(Math.sqrt(h)); }
+
+/* ---------- live train view ---------- */
+function viewTrip(tid){
+  $("#app").innerHTML = header(true) + `<div id="hero" class="hero"><div class="eyebrow"><span>Live train</span></div><h2>Loading…</h2></div>
+    <div class="alerts" id="alerts"></div>
+    <div class="listhead"><h2>Running status</h2><span id="upd2"></span></div>
+    <div class="card"><ol class="tl" id="tl"><div class="skeleton"></div><div class="skeleton"></div></ol></div>`;
+  const ctx = store.get("ctx", {});
+  let alertsDone = false;
+  const load = async () => {
+    try {
+      const [sch, pre, veh] = await Promise.all([
+        api("/schedules", {"filter[trip]": tid, include:"stop,trip,route"}),
+        api("/predictions", {"filter[trip]": tid, include:"stop"}),
+        api("/vehicles", {"filter[trip]": tid})
+      ]);
+      const tr = sch.get("trip", tid);
+      const routeId = sch.data[0] && rel(sch.data[0], "route");
+      const ro = routeId && sch.get("route", routeId);
+      const P = {};
+      pre.data.forEach(p => P[p.attributes.stop_sequence] = {arr:D(p.attributes.arrival_time), dep:D(p.attributes.departure_time),
+        status:p.attributes.status, rel:p.attributes.schedule_relationship, track:(pre.get("stop", rel(p, "stop")) || {attributes:{}}).attributes.platform_code});
+      const stops = sch.data.map(s => {
+        const st = sch.get("stop", rel(s, "stop"));
+        return {seq:s.attributes.stop_sequence, name:st ? st.attributes.name : "", parent:st ? rel(st, "parent_station") : null,
+          sArr:D(s.attributes.arrival_time), sDep:D(s.attributes.departure_time), track:st && st.attributes.platform_code,
+          pick:s.attributes.pickup_type, drop:s.attributes.drop_off_type, p:P[s.attributes.stop_sequence]};
+      }).sort((a, b) => a.seq - b.seq);
+      const v = veh.data[0];
+      const now = Date.now();
+      // Where is the train?
+      let curIdx = -1, frac = 0, mode = "notstarted";
+      if (v){
+        const cs = v.attributes.current_stop_sequence, status = v.attributes.current_status;
+        const i = stops.findIndex(s => s.seq === cs);
+        if (i !== -1){
+          if (status === "STOPPED_AT"){ curIdx = i; frac = 0; mode = "at"; }
+          else if (i === 0){ curIdx = 0; frac = 0; mode = "at"; }
+          else {
+            curIdx = i - 1; mode = "between";
+            const prev = stops[i - 1], next = stops[i];
+            const delay = next.p && (next.p.arr || next.p.dep) && (next.sArr || next.sDep) ? (next.p.arr || next.p.dep) - (next.sArr || next.sDep) : 0;
+            const t0 = (prev.sDep || prev.sArr).getTime() + delay, t1 = (next.p && (next.p.arr || next.p.dep) || next.sArr || next.sDep).getTime();
+            frac = t1 > t0 ? Math.min(.92, Math.max(.08, (now - t0) / (t1 - t0))) : .5;
+            if (status === "INCOMING_AT") frac = Math.max(frac, .85);
+          }
+        }
+      } else {
+        const lastS = stops[stops.length - 1];
+        if (lastS && (lastS.sArr || lastS.sDep) < now - 5 * 60000 && !pre.data.length) mode = "finished";
+      }
+      // Delay = latest prediction vs schedule
+      const firstPred = stops.find(s => s.p && (s.p.arr || s.p.dep));
+      let delay = null;
+      if (firstPred){ const pt = firstPred.p.arr || firstPred.p.dep, stt = firstPred.sArr || firstPred.sDep; delay = stt ? mins(pt - stt) : null; }
+      const cancelled = pre.data.length && pre.data.every(p => p.attributes.schedule_relationship === "CANCELLED");
+      // Hero
+      const num = tr ? tr.attributes.name : "", head = tr ? tr.attributes.headsign : "";
+      let statusLine;
+      if (cancelled) statusLine = "Cancelled";
+      else if (mode === "at") statusLine = (curIdx === stops.length - 1 ? "Arrived at " : "At ") + stops[curIdx].name;
+      else if (mode === "between") statusLine = "Left " + stops[curIdx].name + ", next " + stops[curIdx + 1].name;
+      else if (mode === "finished") statusLine = "Trip finished";
+      else statusLine = "Not started yet · departs " + stops[0].name + " " + fmt(stops[0].sDep || stops[0].sArr);
+      const delayTxt = cancelled ? "" : delay == null ? "Schedule only" : delay >= 2 ? "Running " + delay + " min late" : delay <= -2 ? "Running " + (-delay) + " min early" : "Running on time";
+      const nextStop = mode === "between" ? stops[curIdx + 1] : mode === "at" ? stops[curIdx + 1] : null;
+      const nextEta = nextStop && nextStop.p ? (nextStop.p.arr || nextStop.p.dep) : null;
+      const speed = v && v.attributes.speed != null ? Math.round(v.attributes.speed * 2.237) + " mph" : "";
+      const upd = v ? D(v.attributes.updated_at) : null;
+      $("#hero").innerHTML = `<div class="eyebrow"><span>${v ? '<span class="live-dot"></span>Live' : "Timetable"} · ${esc(ro ? ro.attributes.long_name : "")}</span><span>Train ${esc(num)}</span></div>
+        <h2>To ${esc(head)}</h2>
+        <div class="status">${esc(statusLine)}</div>
+        <div class="meta">${delayTxt ? `<span>${delayTxt}</span>` : ""}${nextStop && nextEta ? `<span>${esc(nextStop.name)} at ${fmt(nextEta)}</span>` : ""}${speed ? `<span>${speed}</span>` : ""}
+        ${upd ? `<span id="ago" data-t="${upd.getTime()}"></span>` : ""}${v ? `<a href="https://www.google.com/maps?q=${v.attributes.latitude},${v.attributes.longitude}" target="_blank" rel="noopener">See on map</a>` : ""}</div>`;
+      // Timeline
+      const mine = s => s.parent && (s.parent === ctx.a || s.parent === ctx.b);
+      $("#tl").innerHTML = stops.map((s, i) => {
+        const done = mode === "finished" || (curIdx >= 0 && i <= curIdx) ;
+        const cur = i === curIdx && mode === "between";
+        const skip = s.p && s.p.rel === "SKIPPED";
+        const pt = s.p ? (s.p.arr || s.p.dep) : null, stt = s.sArr || s.sDep;
+        const d = pt && stt ? mins(pt - stt) : null;
+        const track = (s.p && s.p.track) || null;
+        const pTxt = skip ? '<span class="p" style="color:var(--bad)">Skipped</span>'
+          : pt ? `<span class="p" style="color:${d >= 2 ? "var(--bad)" : "var(--ok)"}">${fmt(pt)}</span>` : "";
+        const info = [];
+        if (d != null && !skip) info.push(d >= 2 ? `<span style="color:var(--bad)">${d} min late</span>` : '<span style="color:var(--ok)">On time</span>');
+        if (s.p && s.p.status) info.push(esc(s.p.status));
+        if (track) info.push(`<span class="track" style="font-size:12px">Track ${esc(track)}</span>`);
+        if (s.pick === 1 && i > 0) info.push("Drop off only");
+        if (s.drop === 1 && i < stops.length - 1) info.push("Pick up only");
+        if (mine(s)) info.push('<b style="color:var(--rail)">' + (s.parent === ctx.a ? "Your start" : "Your stop") + "</b>");
+        return `<li class="st${done ? " done" : ""}${cur ? " cur" : ""}${mine(s) ? " mine" : ""}${skip ? " skip" : ""}" style="--f:${cur ? frac.toFixed(3) : 0}">
+          <div class="tcol"><div class="s">${fmt(stt)}</div>${pTxt}</div>
+          <div class="rail"><span class="sd"></span>${i === curIdx && mode !== "finished" ? `<span class="train" aria-label="Train is here">${TRAIN_SVG}</span>` : ""}</div>
+          <div class="name"><strong>${esc(s.name)}</strong>${info.length ? `<div class="info">${info.join("")}</div>` : ""}</div></li>`;
+      }).join("");
+      $("#upd2").textContent = "refreshed " + fmt(new Date());
+      if (!alertsDone && routeId){
+        alertsDone = true;
+        api("/alerts", {"filter[route]": routeId, "filter[datetime]": "NOW"}).then(r => {
+          const A = r.data.filter(a => (a.attributes.severity || 0) >= 3).slice(0, 3);
+          $("#alerts").innerHTML = A.map(a => `<div class="alert"><b>${esc(a.attributes.effect.replace(/_/g, " ").toLowerCase())}</b> · ${esc(a.attributes.header)}</div>`).join("");
+        }).catch(() => {});
+      }
+    } catch(e){ $("#hero").innerHTML = '<div class="status">Could not load this train</div><div class="meta">' + esc(e.message) + '</div>'; }
+  };
+  load();
+  timer = setInterval(load, 15000);
+  tick = setInterval(() => { const el = $("#ago"); if (el){ const s = Math.max(0, Math.round((Date.now() - +el.dataset.t) / 1000)); el.textContent = "GPS " + (s < 90 ? s + " s" : Math.round(s / 60) + " min") + " ago"; } }, 1000);
+}
+
+/* ---------- settings ---------- */
+function viewSettings(){
+  const key = store.get("apikey", "");
+  $("#app").innerHTML = header(true) + `
+    <div class="listhead"><h2>Settings</h2></div>
+    <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:12px">
+      <label class="field" for="key"><b>MBTA API key (optional)</b>
+        <input id="key" value="${esc(key)}" placeholder="Paste your key here" autocomplete="off" spellcheck="false"></label>
+      <p class="note" style="margin:0">Without a key the MBTA allows about 20 requests a minute, enough for one person. For heavier use, get a free key at <a href="https://api-v3.mbta.com/register" target="_blank" rel="noopener">api-v3.mbta.com</a> and paste it above. It stays on this phone only.</p>
+      <div class="row"><button class="primary" id="saveKey">Save key</button><span id="saved" class="note"></span></div>
+    </div>
+    <div class="card" style="padding:16px;display:flex;flex-direction:column;gap:10px">
+      <b>Station list</b>
+      <p class="note" style="margin:0">Station names are saved on the phone for a week. Refresh if a new station opens.</p>
+      <div class="row"><button class="chip" id="refresh">Refresh stations</button></div>
+    </div>
+    <p class="note">Track numbers appear when the MBTA posts them, usually 10 to 15 minutes before departure at South Station, Back Bay and Providence. Smaller stations have no track numbers. This app is not made by the MBTA.</p>`;
+  $("#saveKey").onclick = () => { store.set("apikey", $("#key").value.trim()); $("#saved").textContent = "Saved"; };
+  $("#refresh").onclick = async () => { store.set("stations_v2", null); $("#refresh").textContent = "Refreshing…";
+    try { await loadStations(); $("#refresh").textContent = "Stations updated"; } catch(e){ $("#refresh").textContent = e.message; } };
+}
+
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+route();
+</script>
+</body>
+</html>

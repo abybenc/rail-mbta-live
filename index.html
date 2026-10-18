@@ -145,6 +145,13 @@ header{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .primary{background:var(--rail);color:var(--rail-ink);border:0;border-radius:10px;padding:10px 16px;font-weight:700}
 .note{font-size:13px;color:var(--muted);line-height:1.5}
 .foot{font-size:12px;color:var(--muted);text-align:center}
+.acard{display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px dashed var(--line);border-radius:14px;padding:12px 14px;font-size:13px;color:var(--muted)}
+.acard.on{border-style:solid;border-color:var(--rail);background:var(--rail-soft);color:var(--ink)}
+.acard p{margin:2px 0 0}
+.acard .row{margin-top:8px}
+.acard .warnt{color:var(--bad);font-weight:700}
+.bell{font-size:18px;line-height:1;padding:6px;border-radius:50%;opacity:.35;filter:grayscale(1)}
+.bell.on{opacity:1;filter:none;background:var(--rail-soft);box-shadow:0 0 0 2px var(--rail)}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -250,6 +257,7 @@ function viewPlan(){
       ${dayLabel.map((l, i) => `<button class="chip" data-day="${i}" aria-pressed="${state.day === i}">${l}</button>`).join("")}
       <button class="chip star" id="fav" aria-pressed="${isFav}">${isFav ? "★ Saved" : "☆ Save route"}</button>
     </div>
+    ${alertCard()}
     ${favs.length ? `<div class="favs">${favs.map(f => `<button class="chip" data-fav="${esc(f.k)}">${esc(f.a.name)} → ${esc(f.b.name)}</button>`).join("")}</div>` : ""}
     <div class="listhead"><h2 id="lh">Trains</h2><span id="upd"></span></div>
     <div class="card" id="trips"><div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div></div>
@@ -266,6 +274,9 @@ function viewPlan(){
     else fs.unshift({k:favKey(), a:state.from, b:state.to});
     store.set("favs", fs.slice(0, 8)); viewPlan();
   };
+  const at = $("#atest"), ao = $("#aoff");
+  if (at) at.onclick = () => { window.MBTANative.test(); at.textContent = "Sent, check notifications"; };
+  if (ao) ao.onclick = () => { window.MBTANative.clearAlert(); viewPlan(); };
   loadTrips();
   if (state.day === 0) timer = setInterval(loadTrips, 30000);
 }
@@ -320,7 +331,9 @@ async function loadTrips(){
     box.innerHTML = (state.day === 0 && pastCount ? `<button class="more" style="border-top:0;border-bottom:1px solid var(--line)" id="past">${state.showPast ? "Hide" : "Show"} ${pastCount} earlier trains</button>` : "") +
       (shown.length ? shown.map(t => tripRow(t, list.indexOf(t) === nextIdx, gone(t))).join("") : '<div class="empty">No more trains today. Try Tomorrow.</div>');
     const pb = $("#past"); if (pb) pb.onclick = () => { state.showPast = !state.showPast; loadTrips(); };
-    box.querySelectorAll(".trip").forEach(b => b.onclick = () => {
+    box.querySelectorAll(".trip").forEach(b => b.onclick = e => {
+      const bell = e.target.closest("[data-bell]");
+      if (bell){ e.stopPropagation(); toggleAlert(bell.dataset.bell); return; }
       store.set("ctx", {a:state.from.id, b:state.to.id});
       location.hash = "trip/" + encodeURIComponent(b.dataset.id);
     });
@@ -331,6 +344,36 @@ function delayInfo(s, p){
   const d = mins(p - s);
   return d;
 }
+/* ---------- weekday commute alert (Android app only) ---------- */
+const hm = d => new Intl.DateTimeFormat("en-GB", {hour:"2-digit", minute:"2-digit", hour12:false, timeZone:TZ}).format(d);
+const hmNice = s => { const [h, m] = s.split(":").map(Number); return (h % 12 || 12) + ":" + String(m).padStart(2, "0") + (h < 12 ? " am" : " pm"); };
+function getAlert(){ try { return window.MBTANative ? JSON.parse(window.MBTANative.getAlert() || "null") : null; } catch(e){ return null; } }
+function viewedIsWeekday(){ const wd = new Intl.DateTimeFormat("en-US", {weekday:"short", timeZone:TZ}).format(new Date(Date.now() + state.day * 864e5)); return wd !== "Sat" && wd !== "Sun"; }
+function bellFor(t, isPast){
+  if (!window.MBTANative || !viewedIsWeekday() || t.cancel) return "";
+  const a = getAlert(), time = hm(t.sDep);
+  const on = a && a.fromId === state.from.id && a.toId === state.to.id && a.time === time;
+  return `<span class="bell${on ? " on" : ""}" role="button" tabindex="0" aria-label="${on ? "Turn off alert for" : "Alert me about"} the ${hmNice(time)} train" data-bell="${time}">🔔</span>`;
+}
+function toggleAlert(time){
+  const a = getAlert();
+  if (a && a.fromId === state.from.id && a.toId === state.to.id && a.time === time) window.MBTANative.clearAlert();
+  else window.MBTANative.setAlert(JSON.stringify({fromId:state.from.id, fromName:state.from.name, toId:state.to.id, toName:state.to.name, time, threshold:10}));
+  viewPlan();
+}
+window.onAlertPermission = () => { if (!location.hash || location.hash === "#") viewPlan(); };
+function alertCard(){
+  if (!window.MBTANative) return "";
+  const a = getAlert();
+  if (!a) return `<div class="acard"><span aria-hidden="true">🔔</span><p>${viewedIsWeekday() ? "Tap the bell on your usual train. You'll get a notification on weekdays if it runs 10+ min late or early, or is cancelled." : "Tap Tomorrow or pick a weekday, then tap the bell on your usual train to get weekday alerts."}</p></div>`;
+  const allowed = !window.MBTANative.notificationsAllowed || window.MBTANative.notificationsAllowed();
+  return `<div class="acard on"><span aria-hidden="true">🔔</span><div><b>Weekday alert: ${hmNice(a.time)} train</b>
+    <p>${esc(a.fromName)} → ${esc(a.toName)}. Checks every 10 min from ${hmNice(shift(a.time, -90))}, and notifies you if it's 10+ min off schedule or cancelled.</p>
+    ${allowed ? "" : '<p class="warnt">Notifications are blocked. Allow them in Android Settings › Apps › MBTA › Notifications.</p>'}
+    <div class="row"><button class="chip" id="atest">Test now</button><button class="chip" id="aoff">Turn off</button></div></div></div>`;
+}
+function shift(time, m){ const [h, mm] = time.split(":").map(Number); const t = ((h * 60 + mm + m) % 1440 + 1440) % 1440; return String(Math.floor(t / 60)).padStart(2, "0") + ":" + String(t % 60).padStart(2, "0"); }
+
 function tripRow(t, isNext, isPast){
   const dly = t.pDep ? delayInfo(t.sDep, t.pDep) : delayInfo(t.sArr, t.pArr);
   let pill;
@@ -348,7 +391,7 @@ function tripRow(t, isNext, isPast){
   if (state.day === 0 && !isPast && !t.cancel){ const m = mins((t.pDep || t.sDep) - Date.now()); left = m <= 0 ? "Departing now" : m < 90 ? "in " + m + " min" : ""; }
   return `<button class="trip${isNext ? " next" : ""}${isPast ? " past" : ""}" data-id="${esc(t.id)}">
     <div class="times tn">${dep} <span class="arr">→ ${arr}</span></div>
-    <div class="side">${track}</div>
+    <div class="side">${track}${bellFor(t, isPast)}</div>
     <div class="sub">${pill}<span>Train ${esc(t.num)}</span><span>${dur} min</span><span>${esc(t.line)}</span>${left ? `<b style="color:var(--ink)">${left}</b>` : ""}</div>
   </button>`;
 }

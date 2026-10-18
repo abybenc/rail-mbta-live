@@ -331,7 +331,7 @@ function delayInfo(s, p){
   return d;
 }
 function tripRow(t, isNext, isPast){
-  const dly = delayInfo(t.sDep, t.pDep);
+  const dly = t.pDep ? delayInfo(t.sDep, t.pDep) : delayInfo(t.sArr, t.pArr);
   let pill;
   if (t.cancel) pill = '<span class="pill bad">Cancelled</span>';
   else if (t.p.a && t.p.a.status && !/^on time$/i.test(t.p.a.status)) pill = `<span class="pill ${/delay|late/i.test(t.p.a.status) ? "warn" : "ok"}">${esc(t.p.a.status)}</span>`;

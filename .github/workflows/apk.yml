@@ -61,8 +61,8 @@ jobs:
                   applicationId 'com.abybenc.mbta'
                   minSdk 24
                   targetSdk 34
-                  versionCode 1
-                  versionName '1.0'
+                  versionCode 2
+                  versionName '1.1'
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
@@ -128,6 +128,8 @@ jobs:
                   s.setJavaScriptEnabled(true);
                   s.setDomStorageEnabled(true);
                   s.setGeolocationEnabled(true);
+                  s.setCacheMode(WebSettings.LOAD_NO_CACHE);
+                  web.clearCache(true);
                   web.setWebViewClient(new WebViewClient() {
                       @Override
                       public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest r) {

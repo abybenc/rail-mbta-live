@@ -25,6 +25,8 @@ jobs:
           gradle-version: "8.9"
 
       - name: Create Android project
+        env:
+          MBTA_KEYSTORE: ${{ secrets.MBTA_KEYSTORE }}
         run: |
           set -e
           mkdir -p android/app/src/main/java/com/abybenc/mbta android/app/src/main/res/mipmap-xxxhdpi android/app/src/main/res/mipmap-xxhdpi
@@ -54,6 +56,7 @@ jobs:
 
           cat > android/app/build.gradle <<'EOF'
           plugins { id 'com.android.application' }
+          def runNo = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
           android {
               namespace 'com.abybenc.mbta'
               compileSdk 34
@@ -61,8 +64,19 @@ jobs:
                   applicationId 'com.abybenc.mbta'
                   minSdk 26
                   targetSdk 34
-                  versionCode 3
-                  versionName '1.2'
+                  versionCode 100 + runNo
+                  versionName "1." + runNo
+              }
+              signingConfigs {
+                  fixed {
+                      storeFile file('mbta.keystore')
+                      storePassword 'mbtaapp'
+                      keyAlias 'mbta'
+                      keyPassword 'mbtaapp'
+                  }
+              }
+              buildTypes {
+                  debug { signingConfig signingConfigs.fixed }
               }
               compileOptions {
                   sourceCompatibility JavaVersion.VERSION_17
@@ -73,6 +87,8 @@ jobs:
 
           cp android-src/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
           cp android-src/*.java android/app/src/main/java/com/abybenc/mbta/
+          if [ -z "$MBTA_KEYSTORE" ]; then echo "::error::Add the MBTA_KEYSTORE secret (Settings > Secrets and variables > Actions)"; exit 1; fi
+          echo "$MBTA_KEYSTORE" | base64 -d > android/app/mbta.keystore
 
       - name: Build APK
         working-directory: android
@@ -91,6 +107,6 @@ jobs:
         with:
           tag_name: v1.${{ github.run_number }}
           name: MBTA app v1.${{ github.run_number }}
-          body: Download MBTA.apk on your Android phone and open it to install.
+          body: Download MBTA.apk on your Android phone and open it. From v1.4 on, it installs right over the old version (tap Update).
           files: MBTA.apk
           make_latest: true
